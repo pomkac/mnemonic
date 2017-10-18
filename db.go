@@ -3,6 +3,7 @@ package mnemonic
 import (
 	"errors"
 	"runtime/debug"
+	"sync"
 )
 
 const (
@@ -20,10 +21,9 @@ var (
 )
 
 type database struct {
+	sync.RWMutex
 	mIsInit   bool
 	mData     map[string]interface{}
-	mTnx      chan transaction
-	mClose    chan bool
 	mConnPool *pool
 }
 
@@ -43,7 +43,7 @@ type result struct {
 	err  error
 }
 
-func (db *database) transaction(tnx *transaction) {
+func (db *database) transaction(tnx *transaction) result{
 	res := &result{}
 	for _, j := range tnx.mJobs {
 		switch j.mType {
@@ -64,14 +64,18 @@ func (db *database) transaction(tnx *transaction) {
 			break
 		}
 	}
-	tnx.mRes <- *res
+	return *res
 }
 
 func (db *database) set(j *job) {
+	db.Lock()
 	db.mData[j.mKey] = j.mData
+	db.Unlock()
 }
 
 func (db *database) get(j *job) (interface{}, error) {
+	db.RLock()
+	defer db.RUnlock()
 	if data, ok := db.mData[j.mKey]; ok {
 		return data, nil
 	}
@@ -79,6 +83,8 @@ func (db *database) get(j *job) (interface{}, error) {
 }
 
 func (db *database) delete(j *job) error {
+	db.Lock()
+	defer db.Unlock()
 	if _, ok := db.mData[j.mKey]; !ok {
 		return errorRecordNotFound
 	}
@@ -87,22 +93,10 @@ func (db *database) delete(j *job) error {
 }
 
 func (db *database) drop(j *job) {
+	db.Lock()
 	db.mData = make(map[string]interface{})
 	debug.FreeOSMemory()
-}
-
-func (db *database) do() {
-	go func() {
-		for {
-			select {
-			case tnx := <-db.mTnx:
-				db.transaction(&tnx)
-			case <-db.mClose:
-				return
-			default:
-			}
-		}
-	}()
+	db.Unlock()
 }
 
 func (db *database) Conn() Connection {
@@ -114,16 +108,9 @@ func (db *database) Conn() Connection {
 	return c
 }
 
-func (db *database) Close() {
-	db.mClose <- true
-}
-
 func NewDB() *database {
 	db := &database{mData: make(map[string]interface{}),
-		mTnx: make(chan transaction),
-		mClose: make(chan bool),
 		mIsInit: true,
 		mConnPool: newPool()}
-	db.do()
 	return db
 }

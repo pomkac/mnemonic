@@ -15,8 +15,7 @@ func (c *Connection) set(key string, data interface{}) error {
 	c.mTnx = transaction{}
 	c.mTnx.mJobs = []job{{mType: tnxSet, mKey: key, mData: data}}
 	c.mTnx.mRes = make(chan result)
-	c.mDB.mTnx <- c.mTnx
-	res := <-c.mTnx.mRes
+	res := c.mDB.transaction(&c.mTnx)
 	return res.err
 }
 
@@ -24,8 +23,7 @@ func (c *Connection) get(key string) (interface{}, error) {
 	c.mTnx = transaction{}
 	c.mTnx.mJobs = []job{{mType: tnxGet, mKey: key}}
 	c.mTnx.mRes = make(chan result)
-	c.mDB.mTnx <- c.mTnx
-	res := <-c.mTnx.mRes
+	res := c.mDB.transaction(&c.mTnx)
 	return res.data, res.err
 }
 
@@ -33,8 +31,8 @@ func (c *Connection) delete(key string) error {
 	c.mTnx = transaction{}
 	c.mTnx.mJobs = []job{{mType: tnxDelete, mKey: key}}
 	c.mTnx.mRes = make(chan result)
-	c.mDB.mTnx <- c.mTnx
-	res := <-c.mTnx.mRes
+	c.mDB.transaction(&c.mTnx)
+	res := c.mDB.transaction(&c.mTnx)
 	return res.err
 }
 
@@ -42,8 +40,7 @@ func (c *Connection) drop() {
 	c.mTnx = transaction{}
 	c.mTnx.mJobs = []job{{mType: tnxDrop}}
 	c.mTnx.mRes = make(chan result)
-	c.mDB.mTnx <- c.mTnx
-	_ = <-c.mTnx.mRes
+	c.mDB.transaction(&c.mTnx)
 }
 
 func (c *Connection) tnxSet(key string, data interface{}) {
@@ -148,8 +145,8 @@ func (c *Connection) Commit() error {
 		c.mTnx.mJobs = append(c.mTnx.mJobs, job{mType: tnxSet, mKey: k, mData: data})
 	}
 	c.mTnx.mRes = make(chan result)
-	c.mDB.mTnx <- c.mTnx
-	res := <-c.mTnx.mRes
+
+	res := c.mDB.transaction(&c.mTnx)
 	c.clearTransaction()
 	return res.err
 }
