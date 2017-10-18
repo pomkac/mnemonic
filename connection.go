@@ -1,6 +1,6 @@
 package mnemonic
 
-type connection struct {
+type Connection struct {
 	ID                int
 	mDB               *database
 	mIsTnx            bool
@@ -11,7 +11,7 @@ type connection struct {
 	isClosed		  bool
 }
 
-func (c *connection) set(key string, data interface{}) error {
+func (c *Connection) set(key string, data interface{}) error {
 	c.mTnx = transaction{}
 	c.mTnx.mJobs = []job{{mType: tnxSet, mKey: key, mData: data}}
 	c.mTnx.mRes = make(chan result)
@@ -20,7 +20,7 @@ func (c *connection) set(key string, data interface{}) error {
 	return res.err
 }
 
-func (c *connection) get(key string) (interface{}, error) {
+func (c *Connection) get(key string) (interface{}, error) {
 	c.mTnx = transaction{}
 	c.mTnx.mJobs = []job{{mType: tnxGet, mKey: key}}
 	c.mTnx.mRes = make(chan result)
@@ -29,7 +29,7 @@ func (c *connection) get(key string) (interface{}, error) {
 	return res.data, res.err
 }
 
-func (c *connection) delete(key string) error {
+func (c *Connection) delete(key string) error {
 	c.mTnx = transaction{}
 	c.mTnx.mJobs = []job{{mType: tnxDelete, mKey: key}}
 	c.mTnx.mRes = make(chan result)
@@ -38,7 +38,7 @@ func (c *connection) delete(key string) error {
 	return res.err
 }
 
-func (c *connection) drop() {
+func (c *Connection) drop() {
 	c.mTnx = transaction{}
 	c.mTnx.mJobs = []job{{mType: tnxDrop}}
 	c.mTnx.mRes = make(chan result)
@@ -46,11 +46,11 @@ func (c *connection) drop() {
 	_ = <-c.mTnx.mRes
 }
 
-func (c *connection) tnxSet(key string, data interface{}) {
+func (c *Connection) tnxSet(key string, data interface{}) {
 	c.mTnxRecords[key] = data
 }
 
-func (c *connection) tnxGet(key string) (data interface{}, err error) {
+func (c *Connection) tnxGet(key string) (data interface{}, err error) {
 
 	if _, ok := c.mTnxDeleteRecords[key]; ok {
 		return nil, errorRecordNotFound
@@ -70,7 +70,7 @@ func (c *connection) tnxGet(key string) (data interface{}, err error) {
 	return
 }
 
-func (c *connection) tnxDelete(key string) {
+func (c *Connection) tnxDelete(key string) {
 
 	if _, ok := c.mTnxRecords[key]; ok{
 		delete(c.mTnxRecords, key)
@@ -79,7 +79,7 @@ func (c *connection) tnxDelete(key string) {
 	c.mTnxDeleteRecords[key] = nil
 }
 
-func (c *connection) clearTransaction() {
+func (c *Connection) clearTransaction() {
 	go func(cl chan bool) {
 		for k, _ := range c.mTnxRecords {
 			delete(c.mTnxRecords, k)
@@ -102,7 +102,7 @@ func (c *connection) clearTransaction() {
 	_,_ = <-c.mChanClear, <-c.mChanClear
 }
 
-func (c *connection) Set(key string, data interface{}) error {
+func (c *Connection) Set(key string, data interface{}) error {
 	if c.mIsTnx {
 		c.tnxSet(key, data)
 		return nil
@@ -110,14 +110,14 @@ func (c *connection) Set(key string, data interface{}) error {
 	return c.set(key, data)
 }
 
-func (c *connection) Get(key string) (interface{}, error) {
+func (c *Connection) Get(key string) (interface{}, error) {
 	if c.mIsTnx {
 		return c.tnxGet(key)
 	}
 	return c.get(key)
 }
 
-func (c *connection) Delete(key string){
+func (c *Connection) Delete(key string){
 	if c.mIsTnx {
 		c.tnxDelete(key)
 		return
@@ -125,7 +125,7 @@ func (c *connection) Delete(key string){
 	c.delete(key)
 }
 
-func (c *connection) Drop() error{
+func (c *Connection) Drop() error{
 	if c.mIsTnx{
 		return errorNoDrop
 	}
@@ -133,12 +133,12 @@ func (c *connection) Drop() error{
 	return nil
 }
 
-func (c *connection) BeginTransaction() {
+func (c *Connection) BeginTransaction() {
 	c.clearTransaction()
 	c.mIsTnx = true
 }
 
-func (c *connection) Commit() error {
+func (c *Connection) Commit() error {
 	c.mTnx = transaction{}
 	for k, _ := range c.mTnxDeleteRecords{
 		c.mTnx.mJobs = append(c.mTnx.mJobs, job{mType: tnxDelete, mKey: k})
@@ -154,11 +154,11 @@ func (c *connection) Commit() error {
 	return res.err
 }
 
-func (c *connection) Rollback() {
+func (c *Connection) Rollback() {
 	c.clearTransaction()
 }
 
-func (c *connection) Close() {
+func (c *Connection) Close() {
 	c.isClosed = true
 	c.mDB.mConnPool.putConn(c)
 }

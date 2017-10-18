@@ -105,7 +105,7 @@ func (db *database) do() {
 	}()
 }
 
-func (db *database) Conn() connection {
+func (db *database) Conn() Connection {
 	c := db.mConnPool.getConn()
 	c.mDB = db
 	c.mTnxRecords = make(map[string]interface{})

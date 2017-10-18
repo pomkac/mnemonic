@@ -1,16 +1,16 @@
 package mnemonic
 
 type pool struct {
-	connPool chan connection
+	connPool chan Connection
 }
 
 func newPool() *pool {
 	return &pool{
-		make(chan connection, 500),
+		make(chan Connection, 500),
 	}
 }
 
-func (p *pool) getConn() (c connection) {
+func (p *pool) getConn() (c Connection) {
 	select {
 	case conn, ok := <-p.connPool:
 		if ok {
@@ -21,8 +21,8 @@ func (p *pool) getConn() (c connection) {
 	return
 }
 
-func (p *pool) putConn(c *connection) {
-	*c = connection{}
+func (p *pool) putConn(c *Connection) {
+	*c = Connection{}
 	select {
 	case p.connPool <- *c:
 	default:
