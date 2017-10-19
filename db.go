@@ -113,10 +113,6 @@ func (db *Database) do() {
 	}()
 }
 
-func PrintCounter(){
-	log.Println(count)
-}
-
 func (db *Database) createWorkers() {
 	for i := 0; i < db.mThreadPoolSize; i++ {
 		go func() {
@@ -151,6 +147,3 @@ func NewDB(config *Config) *Database {
 	db.do()
 	return db
 }
-
-
-var count = 0
