@@ -2,45 +2,48 @@ package mnemonic
 
 type Connection struct {
 	ID                int
-	mDB               *database
+	mDB               *Database
 	mIsTnx            bool
 	mTnx              transaction
 	mTnxRecords       map[string]interface{}
 	mTnxDeleteRecords map[string]interface{}
-	mChanClear        chan bool
-	isClosed		  bool
+	mChanResult       chan result
+	isClosed          bool
 }
 
 func (c *Connection) set(key string, data interface{}) error {
 	c.mTnx = transaction{}
 	c.mTnx.mJobs = []job{{mType: tnxSet, mKey: key, mData: data}}
-	c.mTnx.mRes = make(chan result)
-	res := c.mDB.transaction(&c.mTnx)
+	c.mTnx.mConn = c
+	c.mDB.mChanWorkers <- c.mTnx
+	res := <-c.mChanResult
 	return res.err
 }
 
 func (c *Connection) get(key string) (interface{}, error) {
 	c.mTnx = transaction{}
 	c.mTnx.mJobs = []job{{mType: tnxGet, mKey: key}}
-	c.mTnx.mRes = make(chan result)
-	res := c.mDB.transaction(&c.mTnx)
+	c.mTnx.mConn = c
+	c.mDB.mChanWorkers <- c.mTnx
+	res := <-c.mChanResult
 	return res.data, res.err
 }
 
 func (c *Connection) delete(key string) error {
 	c.mTnx = transaction{}
 	c.mTnx.mJobs = []job{{mType: tnxDelete, mKey: key}}
-	c.mTnx.mRes = make(chan result)
-	c.mDB.transaction(&c.mTnx)
-	res := c.mDB.transaction(&c.mTnx)
+	c.mTnx.mConn = c
+	c.mDB.mChanWorkers <- c.mTnx
+	res := <-c.mChanResult
 	return res.err
 }
 
 func (c *Connection) drop() {
 	c.mTnx = transaction{}
 	c.mTnx.mJobs = []job{{mType: tnxDrop}}
-	c.mTnx.mRes = make(chan result)
-	c.mDB.transaction(&c.mTnx)
+	c.mTnx.mConn = c
+	c.mDB.mChanWorkers <- c.mTnx
+	 <-c.mChanResult
 }
 
 func (c *Connection) tnxSet(key string, data interface{}) {
@@ -53,7 +56,7 @@ func (c *Connection) tnxGet(key string) (data interface{}, err error) {
 		return nil, errorRecordNotFound
 	}
 
-	if data, ok := c.mTnxRecords[key]; ok{
+	if data, ok := c.mTnxRecords[key]; ok {
 		return data, nil
 	}
 
@@ -69,7 +72,7 @@ func (c *Connection) tnxGet(key string) (data interface{}, err error) {
 
 func (c *Connection) tnxDelete(key string) {
 
-	if _, ok := c.mTnxRecords[key]; ok{
+	if _, ok := c.mTnxRecords[key]; ok {
 		delete(c.mTnxRecords, key)
 	}
 
@@ -77,26 +80,18 @@ func (c *Connection) tnxDelete(key string) {
 }
 
 func (c *Connection) clearTransaction() {
-	go func(cl chan bool) {
-		for k, _ := range c.mTnxRecords {
-			delete(c.mTnxRecords, k)
-		}
-		cl <- true
-	}(c.mChanClear)
+	for k, _ := range c.mTnxRecords {
+		delete(c.mTnxRecords, k)
+	}
 
-	go func(cl chan bool) {
-		for k, _ := range c.mTnxDeleteRecords {
-			delete(c.mTnxDeleteRecords, k)
-		}
-		cl <- true
-	}(c.mChanClear)
+	for k, _ := range c.mTnxDeleteRecords {
+		delete(c.mTnxDeleteRecords, k)
+	}
 
 	c.mIsTnx = false
 	c.mTnx = transaction{}
 	c.mTnx.mJobs = []job{}
-	c.mTnx.mRes = make(chan result)
-
-	_,_ = <-c.mChanClear, <-c.mChanClear
+	c.mTnx.mConn = c
 }
 
 func (c *Connection) Set(key string, data interface{}) error {
@@ -114,7 +109,7 @@ func (c *Connection) Get(key string) (interface{}, error) {
 	return c.get(key)
 }
 
-func (c *Connection) Delete(key string){
+func (c *Connection) Delete(key string) {
 	if c.mIsTnx {
 		c.tnxDelete(key)
 		return
@@ -122,8 +117,8 @@ func (c *Connection) Delete(key string){
 	c.delete(key)
 }
 
-func (c *Connection) Drop() error{
-	if c.mIsTnx{
+func (c *Connection) Drop() error {
+	if c.mIsTnx {
 		return errorNoDrop
 	}
 	c.drop()
@@ -137,16 +132,18 @@ func (c *Connection) BeginTransaction() {
 
 func (c *Connection) Commit() error {
 	c.mTnx = transaction{}
-	for k, _ := range c.mTnxDeleteRecords{
+	for k, _ := range c.mTnxDeleteRecords {
 		c.mTnx.mJobs = append(c.mTnx.mJobs, job{mType: tnxDelete, mKey: k})
 	}
-	for k, v := range c.mTnxRecords{
+	for k, v := range c.mTnxRecords {
 		data := v
 		c.mTnx.mJobs = append(c.mTnx.mJobs, job{mType: tnxSet, mKey: k, mData: data})
 	}
-	c.mTnx.mRes = make(chan result)
+	c.mTnx.mConn = c
 
-	res := c.mDB.transaction(&c.mTnx)
+	c.mDB.mChanWorkers <- c.mTnx
+	res := <-c.mChanResult
+
 	c.clearTransaction()
 	return res.err
 }

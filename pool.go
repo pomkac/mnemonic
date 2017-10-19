@@ -4,9 +4,12 @@ type pool struct {
 	connPool chan Connection
 }
 
-func newPool() *pool {
+func newConnPool(size int) *pool {
+	if size == 0{
+		size = 100
+	}
 	return &pool{
-		make(chan Connection, 500),
+		make(chan Connection, size),
 	}
 }
 
@@ -22,7 +25,7 @@ func (p *pool) getConn() (c Connection) {
 }
 
 func (p *pool) putConn(c *Connection) {
-	*c = Connection{}
+	c = &Connection{}
 	select {
 	case p.connPool <- *c:
 	default:

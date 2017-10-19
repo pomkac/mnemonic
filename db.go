@@ -4,6 +4,7 @@ import (
 	"errors"
 	"runtime/debug"
 	"sync"
+	"log"
 )
 
 const (
@@ -20,11 +21,15 @@ var (
 	errorNoDrop          = errors.New("Cannot drop table in transaction")
 )
 
-type database struct {
+type Database struct {
 	sync.RWMutex
-	mIsInit   bool
-	mData     map[string]interface{}
-	mConnPool *pool
+	mIsInit         bool
+	mData           map[string]interface{}
+	mConnPool       *pool
+	mChanWorkers     chan transaction
+	mChanJob        chan transaction
+	mThreadPoolSize int
+	mConnPoolSize   int
 }
 
 type job struct {
@@ -36,6 +41,7 @@ type job struct {
 type transaction struct {
 	mJobs []job
 	mRes  chan result
+	mConn *Connection
 }
 
 type result struct {
@@ -43,48 +49,48 @@ type result struct {
 	err  error
 }
 
-func (db *database) transaction(tnx *transaction) result{
+type Config struct {
+	ConnPoolSize   int
+	ThreadPoolSize int
+}
+
+func (db *Database) transaction(tnx transaction) {
 	res := &result{}
 	for _, j := range tnx.mJobs {
 		switch j.mType {
 		case tnxSet:
-			db.set(&j)
+			db.set(j)
 		case tnxGet:
-			res.data, res.err = db.get(&j)
+			res.data, res.err = db.get(j)
 			break
 		case tnxDelete:
-			res.err = db.delete(&j)
+			res.err = db.delete(j)
 			if res.err != nil {
 				break
 			}
 		case tnxDrop:
-			db.drop(&j)
+			db.drop(j)
 		default:
 			res.err = errorCommandNotFound
 			break
 		}
 	}
-	return *res
+	tnx.mConn.mChanResult <- *res
 }
 
-func (db *database) set(j *job) {
-	db.Lock()
-	db.mData[j.mKey] = j.mData
-	db.Unlock()
+func (db *Database) set(j job) {
+	d := j
+	db.mData[d.mKey] = d.mData
 }
 
-func (db *database) get(j *job) (interface{}, error) {
-	db.RLock()
-	defer db.RUnlock()
+func (db *Database) get(j job) (interface{}, error) {
 	if data, ok := db.mData[j.mKey]; ok {
 		return data, nil
 	}
 	return nil, errorRecordNotFound
 }
 
-func (db *database) delete(j *job) error {
-	db.Lock()
-	defer db.Unlock()
+func (db *Database) delete(j job) error {
 	if _, ok := db.mData[j.mKey]; !ok {
 		return errorRecordNotFound
 	}
@@ -92,25 +98,59 @@ func (db *database) delete(j *job) error {
 	return nil
 }
 
-func (db *database) drop(j *job) {
-	db.Lock()
+func (db *Database) drop(j job) {
 	db.mData = make(map[string]interface{})
 	debug.FreeOSMemory()
-	db.Unlock()
 }
 
-func (db *database) Conn() Connection {
+func (db *Database) do() {
+	db.createWorkers()
+	go func() {
+		for {
+			tnx := <-db.mChanJob
+			db.transaction(tnx)
+		}
+	}()
+}
+
+func PrintCounter(){
+	log.Println(count)
+}
+
+func (db *Database) createWorkers() {
+	for i := 0; i < db.mThreadPoolSize; i++ {
+		go func() {
+			for {
+				tnx := <-db.mChanWorkers
+				db.mChanJob <- tnx
+			}
+		}()
+	}
+}
+
+func (db *Database) Conn() Connection {
 	c := db.mConnPool.getConn()
 	c.mDB = db
 	c.mTnxRecords = make(map[string]interface{})
 	c.mTnxDeleteRecords = make(map[string]interface{})
-	c.mChanClear = make(chan bool)
+	c.mChanResult = make(chan result, 1)
 	return c
 }
 
-func NewDB() *database {
-	db := &database{mData: make(map[string]interface{}),
+func NewDB(config *Config) *Database {
+	if config.ThreadPoolSize == 0 {
+		config.ThreadPoolSize = 100
+	}
+	db := &Database{mData: make(map[string]interface{}),
 		mIsInit: true,
-		mConnPool: newPool()}
+		mConnPool: newConnPool(config.ConnPoolSize),
+		mChanWorkers: make(chan transaction, config.ThreadPoolSize),
+		mChanJob: make(chan transaction, 1),
+		mThreadPoolSize: config.ThreadPoolSize,
+		mConnPoolSize: config.ConnPoolSize}
+	db.do()
 	return db
 }
+
+
+var count = 0
