@@ -43,7 +43,7 @@ func (c *Connection) drop() {
 	c.mTnx.mJobs = []job{{mType: tnxDrop}}
 	c.mTnx.mConn = c
 	c.mDB.mChanWorkers <- c.mTnx
-	 <-c.mChanResult
+	<-c.mChanResult
 }
 
 func (c *Connection) tnxSet(key string, data interface{}) {

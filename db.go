@@ -25,7 +25,7 @@ type Database struct {
 	mIsInit         bool
 	mData           map[string]interface{}
 	mConnPool       *pool
-	mChanWorkers     chan transaction
+	mChanWorkers    chan transaction
 	mChanJob        chan transaction
 	mThreadPoolSize int
 	mConnPoolSize   int
@@ -78,8 +78,7 @@ func (db *Database) transaction(tnx transaction) {
 }
 
 func (db *Database) set(j job) {
-	d := j
-	db.mData[d.mKey] = d.mData
+	db.mData[j.mKey] = j.mData
 }
 
 func (db *Database) get(j job) (interface{}, error) {
@@ -106,8 +105,11 @@ func (db *Database) do() {
 	db.createWorkers()
 	go func() {
 		for {
-			tnx := <-db.mChanJob
-			db.transaction(tnx)
+			select {
+			case tnx := <-db.mChanJob:
+				db.transaction(tnx)
+			}
+			//TODO: Add break
 		}
 	}()
 }
@@ -116,8 +118,11 @@ func (db *Database) createWorkers() {
 	for i := 0; i < db.mThreadPoolSize; i++ {
 		go func() {
 			for {
-				tnx := <-db.mChanWorkers
-				db.mChanJob <- tnx
+				select {
+				case tnx := <-db.mChanWorkers:
+					db.mChanJob <- tnx
+				}
+				//TODO: Add break
 			}
 		}()
 	}

@@ -5,7 +5,7 @@ type pool struct {
 }
 
 func newConnPool(size int) *pool {
-	if size == 0{
+	if size == 0 {
 		size = 100
 	}
 	return &pool{
