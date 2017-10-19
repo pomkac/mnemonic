@@ -4,7 +4,6 @@ import (
 	"errors"
 	"runtime/debug"
 	"sync"
-	"log"
 )
 
 const (
